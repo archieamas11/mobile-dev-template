@@ -36,7 +36,7 @@ export function Home(props: Props) {
 
       <List strong inset>
         <Link to="/view">
-          <ListItem title="Navigate" label link />
+          <ListItem title="Map View" label link />
         </Link>
       </List>
     </Page>

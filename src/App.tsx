@@ -24,7 +24,7 @@ export default function Root() {
       <App safeAreas theme={theme}>
         <Routes>
           <Route path="/" element={<Home theme={theme} onTheme={setTheme} />} />
-          <Route path="/view" element={<View />} />
+          <Route path="/view" element={<View theme={theme} />} />
         </Routes>
       </App>
     </BrowserRouter>

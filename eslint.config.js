@@ -3,7 +3,6 @@ import globals from 'globals'
 import react from 'eslint-plugin-react'
 import reactNative from 'eslint-plugin-react-native'
 import tseslint from 'typescript-eslint'
-import prettier from 'eslint-plugin-prettier'
 import prettierConfig from 'eslint-config-prettier'
 
 export default tseslint.config(
@@ -24,10 +23,8 @@ export default tseslint.config(
     plugins: {
       react,
       'react-native': reactNative,
-      prettier,
     },
     rules: {
-      'prettier/prettier': 'error',
       'react/react-in-jsx-scope': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
