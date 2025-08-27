@@ -22,7 +22,7 @@ export default function Root() {
 
   return (
     <BrowserRouter>
-      <NavigationProvider options={{ costing: 'auto', units: 'kilometers', voiceEnabled: true }}>
+      <NavigationProvider options={{ costing: 'pedestrian', units: 'kilometers', voiceEnabled: true }}>
         <App safeAreas theme={theme}>
           <Routes>
             <Route path="/" element={<Home theme={theme} onTheme={setTheme} />} />

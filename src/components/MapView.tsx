@@ -3,7 +3,7 @@ import { Map, Marker, Popup, NavigationControl, GeolocateControl, Source, Layer 
 import type { MapRef, ViewStateChangeEvent } from 'react-map-gl/maplibre'
 import { Button } from 'konsta/react'
 import { useNavigation } from '../hooks/useNavigation'
-import NavigationInstruction from './NavigationInstruction'
+import GoogleMapsNavigationInstruction from './GoogleMapsNavigationInstruction'
 import type { Location } from '../types/navigation'
 import { decodePolyline } from '../utils/navigation'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -60,12 +60,13 @@ export default function MapView({
 
   // Navigation state
   const navigation = useNavigation({
-    costing: 'auto',
+    costing: 'pedestrian', // Use pedestrian/walking mode instead of auto
     units: 'kilometers',
     voiceEnabled: true,
   })
 
   const [showNavigationInstructions, setShowNavigationInstructions] = useState(false)
+  const [isGettingDirections, setIsGettingDirections] = useState(false)
 
   // ArcGIS World Imagery style configuration
   const arcgisStyle = {
@@ -147,36 +148,52 @@ export default function MapView({
     )
   }, [])
 
-  // Start navigation to marker
+  // Start navigation to marker - automatically gets current location
   const handleGetDirections = useCallback(async () => {
-    if (!currentLocation) {
-      alert('Please get your current location first')
-      return
-    }
-
-    const startLocation: Location = {
-      lat: currentLocation.latitude,
-      lon: currentLocation.longitude,
-      street: 'Current Location',
-    }
-
-    const endLocation: Location = {
-      lat: markerData.latitude,
-      lon: markerData.longitude,
-      street: markerData.title,
-    }
-
-    setShowNavigationInstructions(true)
-    setShowPopup(false) // Close the popup
+    setIsGettingDirections(true)
 
     try {
+      // Get current location automatically
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        if (!navigator.geolocation) {
+          reject(new Error('Geolocation is not supported by this browser.'))
+          return
+        }
+
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 60000,
+        })
+      })
+
+      const { latitude, longitude } = position.coords
+
+      // Update current location state
+      setCurrentLocation({ longitude, latitude })
+
+      const startLocation: Location = {
+        lat: latitude,
+        lon: longitude,
+        street: 'Current Location',
+      }
+
+      const endLocation: Location = {
+        lat: markerData.latitude,
+        lon: markerData.longitude,
+        street: markerData.title,
+      }
+
+      setShowNavigationInstructions(true)
+      setShowPopup(false) // Close the popup
+
       await navigation.startNavigation(startLocation, endLocation)
 
       // Fit map to show the route
       if (mapRef.current) {
         const bounds = [
-          [Math.min(currentLocation.longitude, markerData.longitude), Math.min(currentLocation.latitude, markerData.latitude)],
-          [Math.max(currentLocation.longitude, markerData.longitude), Math.max(currentLocation.latitude, markerData.latitude)],
+          [Math.min(longitude, markerData.longitude), Math.min(latitude, markerData.latitude)],
+          [Math.max(longitude, markerData.longitude), Math.max(latitude, markerData.latitude)],
         ]
 
         mapRef.current.fitBounds(bounds as [[number, number], [number, number]], {
@@ -186,9 +203,15 @@ export default function MapView({
       }
     } catch (error) {
       console.error('Navigation error:', error)
-      alert('Failed to start navigation. Please try again.')
+      if (error instanceof Error) {
+        alert(`Failed to start navigation: ${error.message}`)
+      } else {
+        alert('Failed to start navigation. Please try again.')
+      }
+    } finally {
+      setIsGettingDirections(false)
     }
-  }, [currentLocation, markerData, navigation])
+  }, [markerData, navigation])
 
   // Stop navigation
   const handleStopNavigation = useCallback(() => {
@@ -286,14 +309,12 @@ export default function MapView({
               {/* Get Directions Button */}
               <Button
                 onClick={handleGetDirections}
-                disabled={!currentLocation || navigation.isLoading}
+                disabled={isGettingDirections || navigation.isLoading}
                 rounded={theme === 'ios'}
-                className={`w-full px-4 py-2 text-sm font-medium ${!currentLocation ? 'opacity-50 cursor-not-allowed' : ''}`}
+                className={`w-full px-4 py-2 text-sm font-medium ${isGettingDirections || navigation.isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
-                {navigation.isLoading ? 'Planning Route...' : '🧭 Get Directions'}
+                {isGettingDirections ? 'Getting Location...' : navigation.isLoading ? 'Planning Route...' : '🧭 Get Directions'}
               </Button>
-
-              {!currentLocation && <p className="text-xs text-gray-500 mt-2 text-center">Get your location first to enable directions</p>}
             </div>
           </Popup>
         )}
@@ -318,13 +339,26 @@ export default function MapView({
 
       {/* Navigation Instructions Panel */}
       {showNavigationInstructions && navigation.isNavigating && (
-        <div className="absolute top-4 left-4 right-4 max-w-md mx-auto">
-          <NavigationInstruction instruction={navigation.getCurrentInstruction()} theme={theme} onSpeak={navigation.speakInstruction} />
-          {navigation.error && (
-            <div className="mt-2 p-3 bg-red-100 border border-red-300 rounded-lg">
-              <p className="text-red-700 text-sm">{navigation.error}</p>
-            </div>
-          )}
+        <GoogleMapsNavigationInstruction
+          instruction={navigation.getCurrentInstruction()}
+          theme={theme}
+          onSpeak={navigation.speakInstruction}
+          isNavigating={navigation.isNavigating}
+          onClose={handleStopNavigation}
+          totalDistance={navigation.navigationState.currentRoute?.trip.summary.length}
+          totalTime={navigation.navigationState.currentRoute?.trip.summary.time}
+          isRerouting={navigation.isLoading}
+          allManeuvers={navigation.navigationState.currentRoute?.trip.legs[0]?.maneuvers || []}
+          currentManeuverIndex={navigation.navigationState.currentManeuverIndex}
+          distanceToNext={navigation.navigationState.distanceToNextManeuver}
+        />
+      )}
+
+      {navigation.error && (
+        <div className="absolute top-20 left-4 right-4 max-w-md mx-auto">
+          <div className="p-3 bg-red-100 border border-red-300 rounded-lg">
+            <p className="text-red-700 text-sm">{navigation.error}</p>
+          </div>
         </div>
       )}
 

@@ -13,9 +13,15 @@ export interface ManeuverInstruction {
   verbal_transition_alert_instruction?: string
   verbal_pre_transition_instruction?: string
   verbal_post_transition_instruction?: string
-  distance: number
+  /** Valhalla returns maneuver distance as `length` (in route units, typically km or miles). Keep `distance` optional for forward compatibility */
+  length?: number
+  /** Some responses/libraries might map distance directly; treat as km/miles same as length */
+  distance?: number
+  /** Maneuver travel time in seconds */
   time: number
+  /** Polyline shape start index */
   begin_shape_index: number
+  /** Polyline shape end index */
   end_shape_index: number
   rough?: boolean
 }
