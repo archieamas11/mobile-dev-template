@@ -3,6 +3,7 @@ import { useLayoutEffect, useState } from 'react'
 import { View } from '@/views/View'
 import { Home } from '@/views/Home'
 import { App } from 'konsta/react'
+import { NavigationProvider } from '@/contexts/NavigationContext'
 
 export default function Root() {
   const [theme, setTheme] = useState<'ios' | 'material'>('material')
@@ -21,12 +22,14 @@ export default function Root() {
 
   return (
     <BrowserRouter>
-      <App safeAreas theme={theme}>
-        <Routes>
-          <Route path="/" element={<Home theme={theme} onTheme={setTheme} />} />
-          <Route path="/view" element={<View theme={theme} />} />
-        </Routes>
-      </App>
+      <NavigationProvider options={{ costing: 'auto', units: 'kilometers', voiceEnabled: true }}>
+        <App safeAreas theme={theme}>
+          <Routes>
+            <Route path="/" element={<Home theme={theme} onTheme={setTheme} />} />
+            <Route path="/view" element={<View theme={theme} />} />
+          </Routes>
+        </App>
+      </NavigationProvider>
     </BrowserRouter>
   )
 }

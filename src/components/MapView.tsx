@@ -1,7 +1,11 @@
 import { useCallback, useRef, useState } from 'react'
-import { Map, Marker, Popup, NavigationControl, GeolocateControl } from 'react-map-gl/maplibre'
+import { Map, Marker, Popup, NavigationControl, GeolocateControl, Source, Layer } from 'react-map-gl/maplibre'
 import type { MapRef, ViewStateChangeEvent } from 'react-map-gl/maplibre'
 import { Button } from 'konsta/react'
+import { useNavigation } from '../hooks/useNavigation'
+import NavigationInstruction from './NavigationInstruction'
+import type { Location } from '../types/navigation'
+import { decodePolyline } from '../utils/navigation'
 import 'maplibre-gl/dist/maplibre-gl.css'
 
 interface MapViewProps {
@@ -54,6 +58,15 @@ export default function MapView({
   const [currentLocation, setCurrentLocation] = useState<{ longitude: number; latitude: number } | null>(null)
   const [isLocating, setIsLocating] = useState(false)
 
+  // Navigation state
+  const navigation = useNavigation({
+    costing: 'auto',
+    units: 'kilometers',
+    voiceEnabled: true,
+  })
+
+  const [showNavigationInstructions, setShowNavigationInstructions] = useState(false)
+
   // ArcGIS World Imagery style configuration
   const arcgisStyle = {
     version: 8 as const,
@@ -62,6 +75,8 @@ export default function MapView({
         type: 'raster' as const,
         tiles: ['https://services.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
         tileSize: 256,
+        minzoom: 0,
+        maxzoom: 18,
         attribution: 'Esri, Maxar, Earthstar Geographics, and the GIS User Community',
       },
     },
@@ -132,6 +147,55 @@ export default function MapView({
     )
   }, [])
 
+  // Start navigation to marker
+  const handleGetDirections = useCallback(async () => {
+    if (!currentLocation) {
+      alert('Please get your current location first')
+      return
+    }
+
+    const startLocation: Location = {
+      lat: currentLocation.latitude,
+      lon: currentLocation.longitude,
+      street: 'Current Location',
+    }
+
+    const endLocation: Location = {
+      lat: markerData.latitude,
+      lon: markerData.longitude,
+      street: markerData.title,
+    }
+
+    setShowNavigationInstructions(true)
+    setShowPopup(false) // Close the popup
+
+    try {
+      await navigation.startNavigation(startLocation, endLocation)
+
+      // Fit map to show the route
+      if (mapRef.current) {
+        const bounds = [
+          [Math.min(currentLocation.longitude, markerData.longitude), Math.min(currentLocation.latitude, markerData.latitude)],
+          [Math.max(currentLocation.longitude, markerData.longitude), Math.max(currentLocation.latitude, markerData.latitude)],
+        ]
+
+        mapRef.current.fitBounds(bounds as [[number, number], [number, number]], {
+          padding: 50,
+          duration: 1000,
+        })
+      }
+    } catch (error) {
+      console.error('Navigation error:', error)
+      alert('Failed to start navigation. Please try again.')
+    }
+  }, [currentLocation, markerData, navigation])
+
+  // Stop navigation
+  const handleStopNavigation = useCallback(() => {
+    navigation.stopNavigation()
+    setShowNavigationInstructions(false)
+  }, [navigation])
+
   return (
     <div className="relative w-full h-full">
       <Map
@@ -157,6 +221,36 @@ export default function MapView({
           trackUserLocation={true}
         />
 
+        {/* Route Line */}
+        {navigation.navigationState.currentRoute && (
+          <Source
+            id="route"
+            type="geojson"
+            data={{
+              type: 'Feature',
+              properties: {},
+              geometry: {
+                type: 'LineString',
+                coordinates: decodePolyline(navigation.navigationState.currentRoute.trip.legs[0]?.shape || '', 6),
+              },
+            }}
+          >
+            <Layer
+              id="route-line"
+              type="line"
+              paint={{
+                'line-color': '#3B82F6',
+                'line-width': 4,
+                'line-opacity': 0.8,
+              }}
+              layout={{
+                'line-cap': 'round',
+                'line-join': 'round',
+              }}
+            />
+          </Source>
+        )}
+
         {/* Single Marker */}
         <Marker longitude={markerData.longitude} latitude={markerData.latitude} anchor="bottom" onClick={handleMarkerClick}>
           <div className="w-6 h-6 bg-red-500 rounded-full border-2 border-white shadow-lg cursor-pointer hover:bg-red-600 transition-colors" />
@@ -180,13 +274,26 @@ export default function MapView({
             closeOnClick={false}
             className="min-w-[200px]"
           >
-            <div className="p-2">
+            <div className="p-3">
               <h3 className="font-semibold text-lg mb-1">{markerData.title}</h3>
-              <p className="text-gray-600 text-sm">{markerData.description}</p>
-              <div className="mt-2 text-xs text-gray-500">
+              <p className="text-gray-600 text-sm mb-3">{markerData.description}</p>
+
+              <div className="mb-3 text-xs text-gray-500">
                 <div>Lat: {markerData.latitude.toFixed(6)}</div>
                 <div>Lng: {markerData.longitude.toFixed(6)}</div>
               </div>
+
+              {/* Get Directions Button */}
+              <Button
+                onClick={handleGetDirections}
+                disabled={!currentLocation || navigation.isLoading}
+                rounded={theme === 'ios'}
+                className={`w-full px-4 py-2 text-sm font-medium ${!currentLocation ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                {navigation.isLoading ? 'Planning Route...' : '🧭 Get Directions'}
+              </Button>
+
+              {!currentLocation && <p className="text-xs text-gray-500 mt-2 text-center">Get your location first to enable directions</p>}
             </div>
           </Popup>
         )}
@@ -198,10 +305,28 @@ export default function MapView({
           {isLocating ? 'Locating...' : 'My Location'}
         </Button>
 
-        <Button onClick={handleReset} rounded={theme === 'ios'} className="px-4 py-2 text-sm font-medium">
-          Reset View
-        </Button>
+        {navigation.isNavigating ? (
+          <Button onClick={handleStopNavigation} rounded={theme === 'ios'} className="px-4 py-2 text-sm font-medium bg-red-500 text-white">
+            Stop Navigation
+          </Button>
+        ) : (
+          <Button onClick={handleReset} rounded={theme === 'ios'} className="px-4 py-2 text-sm font-medium">
+            Reset View
+          </Button>
+        )}
       </div>
+
+      {/* Navigation Instructions Panel */}
+      {showNavigationInstructions && navigation.isNavigating && (
+        <div className="absolute top-4 left-4 right-4 max-w-md mx-auto">
+          <NavigationInstruction instruction={navigation.getCurrentInstruction()} theme={theme} onSpeak={navigation.speakInstruction} />
+          {navigation.error && (
+            <div className="mt-2 p-3 bg-red-100 border border-red-300 rounded-lg">
+              <p className="text-red-700 text-sm">{navigation.error}</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Zoom Level Indicator */}
       <div className="absolute top-4 left-4 bg-black bg-opacity-75 text-white px-3 py-1 rounded text-sm">Zoom: {Math.round(viewState.zoom * 10) / 10}</div>
